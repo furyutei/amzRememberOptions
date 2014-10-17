@@ -3,7 +3,7 @@
 // @namespace      http://d.hatena.ne.jp/furyu-tei
 // @include        http://www.amazon.co.jp/*
 // @include        https://www.amazon.co.jp/*
-// @description    remember search options for Amazon.co.jp (ver.0.1.0.0)
+// @description    remember search options for Amazon.co.jp (ver.0.1.1.0)
 // ==/UserScript==
 /*
 The MIT License (MIT)
@@ -31,14 +31,78 @@ THE SOFTWARE.
 
 (function(w, d){
 
-var DEFAULT_SEARCH_ALIAS = 'search-alias=stripbooks';   //  select#searchDropdownBox
-var DEFAULT_SORT = 'date-desc-rank';    //  select#sort
-
+//{ user parameters
 var REPLACE_AUTHOR_URL = true;
 
+var DEFAULT_SEARCH_ALIAS = 'search-alias=stripbooks';   //  select#searchDropdownBox
+var DEFAULT_SORT = 'date-desc-rank';    //  select#sort
+//}
+
+
+w.init_amz_options = function(){
+    //localStorage.clear();
+    localStorage.setItem('search_alias', '');
+    localStorage.setItem('sort', '');
+}   // end of init_amz_options()
+
+
 var main = function(){
+    // === クエリ文字列分解
+    var split_query_string = function(query_string) {
+        var query_list = query_string.split('&');
+        var param_dict = {};
+        for (var ci=0,len=query_list.length; ci<len; ci++) {
+            var param_parts = query_list[ci].split('=');
+            param_dict[param_parts[0]] = (2 <= param_parts.length) ? decodeURIComponent(param_parts[1]) : '';
+            // TODO: 同一キーが複数ある場合を考慮していない
+        }
+        return param_dict;
+    };  // end of split_query_string()
+    
+    // === クエリ文字列作成
+    var join_query_params = function(param_dict) {
+        var query_list = [];
+        for (var name in param_dict) {
+            if (!param_dict.hasOwnProperty(name)) continue;
+            query_list.push(name + '=' + encodeURIComponent(param_dict[name]));
+        }
+        return query_list.join('&');
+    };  //  end of join_query_params()
+    
+    
+    // === 正規化URL(link[name="canonical"]のhref属性)より情報取得
+    var analyze_canonical_url = function(canonical_url) {
+        var result = {};
+        if (!canonical_url) {
+            var link_canonical = d.querySelector('link[rel="canonical"]');
+            if (link_canonical) canonical_url = d.querySelector('link[rel="canonical"]').href;
+        }
+        result['canonical_url'] = canonical_url;
+        while (canonical_url) {
+            if (!canonical_url.match(/^(https?:\/\/[^\/]+)\/([^\/]+)\/([^\/]+)([\/\?])(.+)$/)) break;
+            result['domain_url'] = RegExp.$1;
+            result['keywords'] = decodeURIComponent(RegExp.$2);
+            result['kind'] = RegExp.$3;
+            var method = result['method'] = (RegExp.$4 == '?') ? 'query' : 'path';
+            var parameters = RegExp.$5;
+            var param_dict = {};
+            switch (method) {
+                case    'query':
+                    param_dict = split_query_string(parameters);
+                    break;
+                case    'path':
+                    param_dict = {asin: parameters};
+                    break;
+            }
+            result['param_dict'] = param_dict;
+            break;
+        }
+        return result;
+    };  // end of analyze_canonical_url()
+    
     var ready = false;
     for (;;) {
+        // === 検索フォームの各要素取得
         var elm_searchbar = d.querySelector('form#nav-searchbar');
         if (!elm_searchbar) break;
         
@@ -50,51 +114,96 @@ var main = function(){
         
         ready = true;
         
+        
+        // === 保存済みオプションパラメータ取得
         var option_search_alias = localStorage.getItem('search_alias');
         var option_sort = localStorage.getItem('sort');
         if (!option_search_alias) option_search_alias = DEFAULT_SEARCH_ALIAS;
         if (!option_sort) option_sort = DEFAULT_SORT;
         
+        
+        // === 現ページの正規化URL情報取得
+        canonical_url_info = analyze_canonical_url();
+        console.log(canonical_url_info);
+        
+        
+        // === 著者ページURL → 著者検索ページ URL 変換
         var change_author_url = (function(){
             var action = elm_searchbar.action;
             var elm_inputs = elm_searchbar.querySelectorAll('*[name]');
-            var source_query_list = [], ignore_name_dict = {'field-keywords':true, 'url':true, 'sort':true};
+            var source_param_dict = {};
             for (var ci=0, len=elm_inputs.length; ci < len; ci++) {
-                var elm_input = elm_inputs[ci];
-                if (ignore_name_dict[elm_input.name]) continue;
-                source_query_list.push(elm_input.name + '=' + encodeURIComponent(elm_input.value));
+                var elm_input = elm_inputs[ci], input_name = elm_input.name, input_value = elm_input.value;
+                switch (input_name) {
+                    case    'field-keywords':
+                        continue;
+                    default:
+                        break;
+                }
+                source_param_dict[input_name] = input_value;
             }
-            source_query_list.push('url=' + encodeURIComponent(option_search_alias));
-            source_query_list.push('sort=' + encodeURIComponent(option_sort));
+            if (!source_param_dict['url']) source_param_dict['url'] = option_search_alias;
+            if (!source_param_dict['sort']) source_param_dict['sort'] = option_sort;
             
             //var is_valid = !!(elm_search_dropdown_box.value.match(/(?:books|digital-text)$/)) && REPLACE_AUTHOR_URL;
             var is_valid = REPLACE_AUTHOR_URL;
+            
             return function(author_url){
-                if (!is_valid || !author_url.match(/\/([^\/]+)\/e\/[^\/]+\/ref=/)) return author_url;
-                var author = decodeURIComponent(RegExp.$1);
-                var query_list = source_query_list.slice(0);
-                query_list.push('field-author=' + encodeURIComponent(author));
-                return action + '?' + query_list.join('&');
+                var result_url = null;
+                for (;;) {
+                    if (!is_valid) break;
+                    var param_dict = {};
+                    for (var name in source_param_dict) {
+                        if (!source_param_dict.hasOwnProperty(name)) continue;
+                        param_dict[name] = source_param_dict[name];
+                    }
+                    if (author_url) {
+                        if (!author_url.match(/\/([^\/]+)\/e\/[^\/]+\/ref=/)) break;
+                        // TODO: ＠＠＠ 検索フォームの状態に依存するので、例えば個別ページで「すべてのカテゴリー」になっている場合は動作がおかしい
+                        //      商品ジャンルに応じて 'url' パラメータを適切に設定する必要あり→細かい場合分けが必要？
+                        param_dict['field-author'] = decodeURIComponent(RegExp.$1);
+                    }
+                    else {
+                        if (canonical_url_info.kind != 'e') break;
+                        param_dict['field-author'] = canonical_url_info.keywords;
+                    }
+                    result_url = action + '?' + join_query_params(param_dict);
+                    break;
+                }
+                return result_url;
             };
         })();   // end of change_author_url()
         
-        var new_url = change_author_url(w.location.href);
-        if (new_url != w.location.href) {
-            w.location.replace(new_url);
+        
+        // === 著者ページのチェック
+        var new_url = change_author_url();
+        if (new_url && (new_url != w.location.href)) {
+            w.location.replace(new_url);    // 著者ページ→著者検索ページへリダイレクト
             break;
         }
+        
+        // === 著者ページへのリンク→著者検索ページへのリンクに変換
         var links = d.querySelectorAll('div#byline span.author a.a-link-normal, div.buying a');
         for (var ci=0, len=links.length; ci<len; ci++) {
             var link = links[ci];
             var new_url = change_author_url(link.href);
-            if (new_url == link.href) {
-                link.href = link.href.replace(/([\?&]sort=)[^\?&]+/g, '$1'+encodeURIComponent(option_sort))
+            if (new_url && (new_url != link.href)) {
+                //link.href = new_url;
+                // TODO: ＠＠＠ 動作がおかしい場合があるので保留
             }
             else {
-                link.href = new_url;
+                // 'sort' オプションの付加
+                //link.href = link.href.replace(/([\?&]sort=)[^\?&]+/g, '$1'+encodeURIComponent(option_sort))
+                var url_parts = link.href.split('?');
+                if (2 <= url_parts.length) {
+                    var url_base = url_parts[0], param_dict = split_query_string(url_parts[1]);
+                    param_dict['sort'] = option_sort;
+                    link.href = url_base + '?' + join_query_params(param_dict);
+                }
             }
         }
         
+        // === 検索フォーム内に 'sort' オプション埋め込み
         var elm_sort = elm_searchbar.querySelector('*[name="sort"]');
         if (!elm_sort) {
             var elm_sort = d.createElement('input');
@@ -104,32 +213,27 @@ var main = function(){
         }
         elm_sort.value = option_sort;
         
-        var replace_url = false;
-        for (;;) {
-            var elm_search_sort_form = d.querySelector('form#searchSortForm');
-            if (!elm_search_sort_form) break;
-            var elm_search_sort = elm_search_sort_form.querySelector('select#sort') || elm_search_sort_form.querySelector('*[name="sort"]');
-            if (!elm_search_sort) break;
-            
-            if (w.location.href.match(/[&\?]sort=.+/)) {
+        
+        // === 並べ替えフォームの各要素取得
+        var elm_search_sort_form = d.querySelector('form#searchSortForm');
+        var elm_search_sort = (elm_search_sort_form) ? elm_search_sort_form.querySelector('select#sort') || elm_search_sort_form.querySelector('*[name="sort"]') : null;
+        
+        if (canonical_url_info.kind) {
+            // === 検索結果画面・個別ページ等→パラメータを保存
+            localStorage.setItem('search_alias', elm_search_dropdown_box.value);
+            if (elm_search_sort) {
                 localStorage.setItem('sort', elm_search_sort.value);
                 elm_sort.value = elm_search_sort.value;
             }
-            else {
+        }
+        else {
+            // === 検索結果画面・個別ページ等以外→保存パラメータを設定
+            elm_search_dropdown_box.value = option_search_alias;
+            d.querySelector('span#nav-search-in-content').textContent = elm_search_dropdown_box.querySelector('option[value="'+option_search_alias+'"]').textContent;
+            if (elm_search_sort) {
                 elm_search_sort.value = option_sort;
-                elm_search_sort_form.submit();
-                replace_url = true;
             }
-            break;
         }
-        if (replace_url) break;
-        
-        if (elm_textbox.value) {
-            localStorage.setItem('search_alias', elm_search_dropdown_box.value);
-            break;
-        }
-        elm_search_dropdown_box.value = option_search_alias;
-        d.querySelector('span#nav-search-in-content').textContent = elm_search_dropdown_box.querySelector('option[value="'+option_search_alias+'"]').textContent;
         break;
     }
     return ready;
@@ -138,6 +242,8 @@ var main = function(){
 var ready = main();
 if (!ready) return;
 
+
+// === ページ遷移を検知→メイン処理コール
 var pushState = w.history.pushState;
 if (pushState && w.addEventListener) {
     w.history.pushState = function(){
