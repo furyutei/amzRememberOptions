@@ -3,7 +3,7 @@
 // @namespace      http://d.hatena.ne.jp/furyu-tei
 // @include        http://www.amazon.co.jp/*
 // @include        https://www.amazon.co.jp/*
-// @description    remember search options for Amazon.co.jp (ver.0.1.3.0)
+// @description    remember search options for Amazon.co.jp (ver.0.1.4.0)
 // ==/UserScript==
 /*
 The MIT License (MIT)
@@ -33,6 +33,7 @@ THE SOFTWARE.
 
 //{ user parameters
 var REPLACE_AUTHOR_URL = true;
+var ADD_UNFILTERED_OPTION = true;
 
 var DEFAULT_SEARCH_ALIAS = 'search-alias=stripbooks';   //  select#searchDropdownBox
 var DEFAULT_SORT = 'date-desc-rank';    //  select#sort
@@ -144,6 +145,7 @@ var main = function(){
             }
             if (!source_form_param_dict['url']) source_form_param_dict['url'] = option_search_alias;
             if (!source_form_param_dict['sort']) source_form_param_dict['sort'] = option_sort;
+            if (ADD_UNFILTERED_OPTION) source_form_param_dict['unfiltered'] = '1';
             
             var links = d.querySelectorAll('a.a-link-normal, div.buying a'), source_link_param_dict = null, field_name = null;
             for (var ci=0,len=links.length; ci<len; ci++) {
@@ -159,6 +161,7 @@ var main = function(){
                     }
                 }
                 source_link_param_dict['sort'] = option_sort;
+                if (ADD_UNFILTERED_OPTION) source_link_param_dict['unfiltered'] = '1';
                 break;
             }
             if (!field_name) field_name = 'field-author';
@@ -217,12 +220,13 @@ var main = function(){
                 link.href = new_url;
             }
             else {
-                // 'sort' オプションの付加
+                // オプションの付加
                 //link.href = link.href.replace(/([\?&]sort=)[^\?&]+/g, '$1'+encodeURIComponent(option_sort))
                 var url_parts = link.href.split('?');
                 if (2 <= url_parts.length) {
                     var url_base = url_parts[0], param_dict = split_query_string(url_parts[1]);
                     param_dict['sort'] = option_sort;
+                    if (ADD_UNFILTERED_OPTION) param_dict['unfiltered'] = '1';
                     link.href = url_base + '?' + join_query_params(param_dict);
                 }
             }
@@ -238,10 +242,29 @@ var main = function(){
         }
         elm_sort.value = option_sort;
         
-        
         // === 並べ替えフォームの各要素取得
         var elm_search_sort_form = d.querySelector('form#searchSortForm');
         var elm_search_sort = (elm_search_sort_form) ? elm_search_sort_form.querySelector('select#sort') || elm_search_sort_form.querySelector('*[name="sort"]') : null;
+        
+        if (ADD_UNFILTERED_OPTION) {
+            // === 検索フォーム内に 'unfiltered' オプション埋め込み
+            var elm_unfiltered = elm_searchbar.querySelector('*[name="unfiltered"]');
+            if (!elm_unfiltered) {
+                elm_unfiltered = d.createElement('input');
+                elm_unfiltered.type = 'hidden';
+                elm_unfiltered.name = 'unfiltered';
+                elm_unfiltered.value = '1';
+                elm_searchbar.appendChild(elm_unfiltered);
+            }
+            // === 並べ替えフォーム内に 'unfiltered' オプション埋め込み
+            if (elm_search_sort_form) {
+                var elm_sort_unfiltered = elm_search_sort_form.querySelector('*[name="unfiltered"]');
+                if (!elm_sort_unfiltered) {
+                    elm_sort_unfiltered = elm_unfiltered.cloneNode(true);
+                    elm_search_sort_form.appendChild(elm_sort_unfiltered);
+                }
+            }
+        }
         
         if (canonical_url_info.kind) {
             // === 検索結果画面・個別ページ等→パラメータを保存
