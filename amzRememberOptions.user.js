@@ -3,7 +3,7 @@
 // @namespace      http://d.hatena.ne.jp/furyu-tei
 // @include        http://www.amazon.co.jp/*
 // @include        https://www.amazon.co.jp/*
-// @description    remember search options for Amazon.co.jp (ver.0.1.1.0)
+// @description    remember search options for Amazon.co.jp (ver.0.1.2.0)
 // ==/UserScript==
 /*
 The MIT License (MIT)
@@ -124,14 +124,14 @@ var main = function(){
         
         // === 現ページの正規化URL情報取得
         canonical_url_info = analyze_canonical_url();
-        console.log(canonical_url_info);
+        //console.log(canonical_url_info);
         
         
         // === 著者ページURL → 著者検索ページ URL 変換
         var change_author_url = (function(){
             var action = elm_searchbar.action;
             var elm_inputs = elm_searchbar.querySelectorAll('*[name]');
-            var source_param_dict = {};
+            var source_form_param_dict = {};
             for (var ci=0, len=elm_inputs.length; ci < len; ci++) {
                 var elm_input = elm_inputs[ci], input_name = elm_input.name, input_value = elm_input.value;
                 switch (input_name) {
@@ -140,10 +140,28 @@ var main = function(){
                     default:
                         break;
                 }
-                source_param_dict[input_name] = input_value;
+                source_form_param_dict[input_name] = input_value;
             }
-            if (!source_param_dict['url']) source_param_dict['url'] = option_search_alias;
-            if (!source_param_dict['sort']) source_param_dict['sort'] = option_sort;
+            if (!source_form_param_dict['url']) source_form_param_dict['url'] = option_search_alias;
+            if (!source_form_param_dict['sort']) source_form_param_dict['sort'] = option_sort;
+            
+            var links = d.querySelectorAll('a.a-link-normal, div.buying a'), source_link_param_dict = null, field_name = null;
+            for (var ci=0,len=links.length; ci<len; ci++) {
+                if (!links[ci].href.match(/[?&]search-alias=/)) continue;
+                var url_parts = links[ci].href.split('?');
+                if (url_parts.length < 2) continue;
+                source_link_param_dict = split_query_string(url_parts[1]);
+                for (var name in source_link_param_dict) {
+                    if (!source_link_param_dict.hasOwnProperty(name)) continue;
+                    if (name.match(/^field-/)) {
+                        field_name = name;
+                        continue;
+                    }
+                }
+                source_link_param_dict['sort'] = option_sort;
+                break;
+            }
+            if (!field_name) field_name = 'field-author';
             
             //var is_valid = !!(elm_search_dropdown_box.value.match(/(?:books|digital-text)$/)) && REPLACE_AUTHOR_URL;
             var is_valid = REPLACE_AUTHOR_URL;
@@ -152,6 +170,10 @@ var main = function(){
                 var result_url = null;
                 for (;;) {
                     if (!is_valid) break;
+                    
+                    var source_param_dict = (author_url) ? source_link_param_dict : source_form_param_dict;
+                    if (!source_param_dict) break;
+                    
                     var param_dict = {};
                     for (var name in source_param_dict) {
                         if (!source_param_dict.hasOwnProperty(name)) continue;
@@ -159,13 +181,15 @@ var main = function(){
                     }
                     if (author_url) {
                         if (!author_url.match(/\/([^\/]+)\/e\/[^\/]+\/ref=/)) break;
-                        // TODO: ＠＠＠ 検索フォームの状態に依存するので、例えば個別ページで「すべてのカテゴリー」になっている場合は動作がおかしい
-                        //      商品ジャンルに応じて 'url' パラメータを適切に設定する必要あり→細かい場合分けが必要？
-                        param_dict['field-author'] = decodeURIComponent(RegExp.$1);
+                        var author = RegExp.$1;
+                        if (author == '-') break;
+                        //param_dict['field-author'] = decodeURIComponent(author);
+                        param_dict[field_name] = param_dict['text'] = decodeURIComponent(author);
                     }
                     else {
                         if (canonical_url_info.kind != 'e') break;
                         param_dict['field-author'] = canonical_url_info.keywords;
+                        // TODO: 'field-author' 以外を考慮する必要はないか？
                     }
                     result_url = action + '?' + join_query_params(param_dict);
                     break;
@@ -183,13 +207,13 @@ var main = function(){
         }
         
         // === 著者ページへのリンク→著者検索ページへのリンクに変換
-        var links = d.querySelectorAll('div#byline span.author a.a-link-normal, div.buying a');
+        //var links = d.querySelectorAll('div#byline span.author a.a-link-normal, div.buying a');
+        var links = d.querySelectorAll('a.a-link-normal, div.buying a');
         for (var ci=0, len=links.length; ci<len; ci++) {
             var link = links[ci];
             var new_url = change_author_url(link.href);
             if (new_url && (new_url != link.href)) {
-                //link.href = new_url;
-                // TODO: ＠＠＠ 動作がおかしい場合があるので保留
+                link.href = new_url;
             }
             else {
                 // 'sort' オプションの付加
