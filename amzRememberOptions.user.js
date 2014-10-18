@@ -3,7 +3,7 @@
 // @namespace      http://d.hatena.ne.jp/furyu-tei
 // @include        http://www.amazon.co.jp/*
 // @include        https://www.amazon.co.jp/*
-// @description    remember search options for Amazon.co.jp (ver.0.1.2.0)
+// @description    remember search options for Amazon.co.jp (ver.0.1.3.0)
 // ==/UserScript==
 /*
 The MIT License (MIT)
@@ -130,10 +130,10 @@ var main = function(){
         // === 著者ページURL → 著者検索ページ URL 変換
         var change_author_url = (function(){
             var action = elm_searchbar.action;
-            var elm_inputs = elm_searchbar.querySelectorAll('*[name]');
+            var elm_params = elm_searchbar.querySelectorAll('*[name]');
             var source_form_param_dict = {};
-            for (var ci=0, len=elm_inputs.length; ci < len; ci++) {
-                var elm_input = elm_inputs[ci], input_name = elm_input.name, input_value = elm_input.value;
+            for (var ci=0, len=elm_params.length; ci < len; ci++) {
+                var elm_input = elm_params[ci], input_name = elm_input.name, input_value = elm_input.value;
                 switch (input_name) {
                     case    'field-keywords':
                         continue;
@@ -202,7 +202,8 @@ var main = function(){
         // === 著者ページのチェック
         var new_url = change_author_url();
         if (new_url && (new_url != w.location.href)) {
-            w.location.replace(new_url);    // 著者ページ→著者検索ページへリダイレクト
+            // console.log('New URL: ' + new_url);
+            w.location.replace(new_url);    // 著者ページ→著者検索ページへ遷移
             break;
         }
         
@@ -246,8 +247,27 @@ var main = function(){
             // === 検索結果画面・個別ページ等→パラメータを保存
             localStorage.setItem('search_alias', elm_search_dropdown_box.value);
             if (elm_search_sort) {
-                localStorage.setItem('sort', elm_search_sort.value);
-                elm_sort.value = elm_search_sort.value;
+                if (w.location.href.match(/[\?&]sort=/)) {
+                    // 並び順指定あり→パラメータ保存
+                    localStorage.setItem('sort', elm_search_sort.value);
+                    elm_sort.value = elm_search_sort.value;
+                }
+                else {
+                    // 並び順指定なし
+                    if (elm_search_sort.value != option_sort && elm_search_sort.querySelector('option[value="' + option_sort +'"]')) {
+                        // 保存された並び順と異なる→並び順を指定してページ遷移
+                        elm_search_sort.value = option_sort;
+                        //elm_search_sort_form.submit();
+                        var elm_params = elm_search_sort_form.querySelectorAll('*[name]');
+                        var query_list = [];
+                        for (var ci=0,len=elm_params.length; ci<len; ci++) {
+                            query_list.push(elm_params[ci]['name'] + '=' + encodeURIComponent(elm_params[ci]['value']));
+                        }
+                        var new_url = elm_search_sort_form.action + '?' + query_list.join('&');
+                        // console.log('New URL: ' + new_url);
+                        w.location.replace(new_url);
+                    }
+                }
             }
         }
         else {
