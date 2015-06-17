@@ -1,9 +1,11 @@
 // ==UserScript==
-// @name           amzRememberOptions
-// @namespace      http://d.hatena.ne.jp/furyu-tei
-// @include        http://www.amazon.co.jp/*
-// @include        https://www.amazon.co.jp/*
-// @description    remember search options for Amazon.co.jp (ver.0.1.5.0)
+// @name            amzRememberOptions
+// @namespace       http://d.hatena.ne.jp/furyu-tei
+// @author          furyu
+// @version         0.1.5.1
+// @include         http://www.amazon.co.jp/*
+// @include         https://www.amazon.co.jp/*
+// @description     remember search options for Amazon.co.jp
 // ==/UserScript==
 /*
 The MIT License (MIT)
@@ -170,7 +172,7 @@ var main = function(){
     var ready = false;
     for (;;) {
         // === 検索フォームの各要素取得
-        var elm_searchbar = d.querySelector('form#nav-searchbar');
+        var elm_searchbar = d.querySelector('form#nav-searchbar') || d.querySelector('form.nav-searchbar[name="site-search"]');
         if (!elm_searchbar) break;
         
         var elm_textbox = elm_searchbar.querySelector('input#twotabsearchtextbox') || elm_searchbar.querySelector('*[name="field-keywords"]');
@@ -377,7 +379,11 @@ var main = function(){
         else {
             // === 検索結果画面・個別ページ等以外→保存パラメータを設定
             elm_search_dropdown_box.value = option_search_alias;
-            d.querySelector('span#nav-search-in-content').textContent = elm_search_dropdown_box.querySelector('option[value="'+option_search_alias+'"]').textContent;
+            var span_nav_search_in_content = d.querySelector('span#nav-search-in-content') || d.querySelector('span.nav-search-label');
+            var option_element = elm_search_dropdown_box.querySelector('option[value="'+option_search_alias+'"]');
+            if (span_nav_search_in_content && option_element) {
+                span_nav_search_in_content.textContent = option_element.textContent;
+            }
             if (elm_search_sort) {
                 elm_search_sort.value = option_sort;
             }
